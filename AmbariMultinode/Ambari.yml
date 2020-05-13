@@ -1,0 +1,53 @@
+---
+- name: Ambari Installation in Master
+  hosts: master
+  gather_facts: False
+  tasks:
+# Check the ambari repo is already exists or not
+   - stat: path=/etc/yum.repos.d/ambari.repo
+     register: ambarirepopath
+# Download the hortonworks repo
+   - name: Download the hortonworks repo for ambari
+     command: wget -nv http://public-repo-1.hortonworks.com/ambari/centos7/2.x/updates/2.6.2.0/ambari.repo -O /etc/yum.repos.d/ambari.repo
+     when: ambarirepopath.stat.exists == false
+     args:
+       warn: false
+# Update the Repo
+   - name: Update the software package repository
+     yum:
+      update_cache: yes
+# Check the repolist
+   - name: Check the repolist 
+     command: yum repolist | grep ambari
+     args:
+       warn: false
+     register: ambarirepo
+   - name: Print ambari repo
+     debug:
+       msg: "{{ ambarirepo.stdout }}" 
+# Install the Ambari Server
+   - name: Install the Ambari Server
+     yum:
+      name: ambari-server
+      state: present
+# Setup the ambari server
+   - name: Setup the ambari server
+     command: ambari-server setup -s
+# Add the metron mpack to ambari
+   - name: Add the metron mpack to ambari
+     command: ambari-server install-mpack --mpack=/root/metron/metron-deployment/packaging/ambari/metron-mpack/target/metron_mpack-0.7.2.0.tar.gz
+   - name: Add the elasticsearch  mpack to ambari
+     command: ambari-server install-mpack --mpack=/root/metron/metron-deployment/packaging/ambari/elasticsearch-mpack/target/elasticsearch_mpack-0.7.2.0.tar.gz
+# Start the amabri Server
+   - name: Start the amabri Server
+     service:
+        name: ambari-server
+        state: started
+        enabled: yes 
+# Check the ambari status
+   - name: Check the ambari server status
+     command: ambari-server status
+     register: ambaristatus
+   - name: Print ambari status
+     debug:
+       msg: "{{ ambaristatus.stdout }}"

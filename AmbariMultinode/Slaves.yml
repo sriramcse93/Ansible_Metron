@@ -1,0 +1,125 @@
+---
+- name: Metron installation in Slave node
+  hosts: slaves
+  gather_facts: False
+  vars:
+    pythonversion: 2.7.6
+    nodeversion: v0.10.30
+  tasks:
+   - name: Stop service firewall, if started
+     service:
+      name: firewalld
+      state: stopped
+   - name: Set DisableSElinux
+     command: setenforce 0
+# Check the .ssh
+   - stat: path=/root/.ssh
+     register: sshpath 
+# SSH Key Gen
+   - name: SSH RSA KEYGEN
+     shell: |
+       ssh-keygen -t rsa
+       cat .ssh/id_rsa.pub >> .ssh/authorized_keys
+     when: sshpath.stat.exists == False
+   - name: Add epel-release repo
+     yum:
+      name: epel-release
+      state: present
+      update_cache: yes
+   - name: Install gcc gcc-c++
+     yum:
+      name: 
+        - gcc
+        - gcc-c++
+      state: present
+# Download the python tar file
+   - stat: path=/root/Python-{{ pythonversion }}.tar.xz
+     register: result
+   - name: Download the Python tar files
+     get_url:
+       url: http://www.python.org/ftp/python/{{ pythonversion }}/Python-{{ pythonversion }}.tar.xz
+       dest: /root/
+     when: result.stat.exists == False
+# Extract the tar file
+   - stat: path=/root/Python-{{ pythonversion }}
+     register: pythonextract
+   - name: Extract the python tar file
+     unarchive: 
+       src: /root/Python-{{ pythonversion }}.tar.xz 
+       dest: /root/
+     when: pythonextract.stat.exists == False
+   - name: Install Python_HOME
+     command: chdir=/root/Python-{{ pythonversion }} ./configure
+   - name: Install Python_HOME altinstall
+     command: chdir=/root/Python-{{ pythonversion }} make altinstall
+   - name: Set Python_HOME 
+     shell: |
+       cd /root/Python-{{ pythonversion }} 
+       export PATH="/usr/local/bin:$PATH"
+   - stat: path=/etc/profile.d/java_18.sh
+     register: javapath
+   - name: Install JAVA_HOME
+     shell: |
+       yum install java-1.8.0-openjdk java-1.8.0-openjdk-devel -y
+       export JAVA_HOME=$(readlink -f /usr/bin/java | sed "s_/jre/bin/java__")
+       echo 'export JAVA_HOME=$(readlink -f /usr/bin/java | sed "s_/jre/bin/java__")' > /etc/profile.d/java_18.sh
+       chmod +x /etc/profile.d/java_18.sh
+       source /etc/profile.d/java_18.sh
+     when: javapath.stat.exists == False
+     args:
+       warn: false
+   - name: Install Python Libraries and python pip
+     shell: |
+       yum install git wget curl rpm tar unzip bzip2 wget createrepo yum-utils ntp python-pip psutils python-psutil ntp libffi-devel gcc openssl-devel npm -y
+       pip install --upgrade pip
+       pip install requests urllib
+       pip install --upgrade setuptools
+     args:
+       warn: false
+# Install Python pip
+   - name: Install Python-Pip
+     yum:
+      name: python-pip
+      state: present
+      update_cache: yes
+# Download the NpM and node tar file
+   - stat: path=/root/node-{{ nodeversion }}.tar.gz
+     register: result2
+   - name: Download the node tar files
+     get_url:
+       url: http://nodejs.org/dist/{{ nodeversion }}/node-{{ nodeversion }}.tar.gz
+       dest: /root/
+     when: result2.stat.exists == False
+# Extract the node tar file
+   - stat: path=/root/node-{{ nodeversion }}
+     register: nodetar
+   - name: Extract the node tar file
+     unarchive:
+       src: /root/node-{{ nodeversion }}.tar.gz
+       dest: /root/
+     when: nodetar.stat.exists == False
+   - name: Install the Node Path
+     shell: |
+       cd /root/node-{{ nodeversion }}
+       ./configure
+       make
+       sudo make install
+   - stat: path=/localrepo
+     register: localrepopath
+# Directory for localrepo
+   - name: Directory for LocalRepo for Metron RPM 
+     file:
+      path: /localrepo
+      state: directory
+     when: localrepopath.stat.exists == false
+ # To check the RPMS Directory is exists or not
+   - stat: path=/root/metron/metron-deployment/packaging/docker/rpm-docker/target/RPMS/noarch/
+     register: rpmspath
+     delegate_to: ansiblemaster
+   - name: Copy the RPM from master
+     synchronize: src=/root/metron/metron-deployment/packaging/docker/rpm-docker/target/RPMS/noarch/ dest=/localrepo/
+     when: rpmspath.stat.exists == True
+     delegate_to: ansiblemaster
+   # create the localrepo
+   - name: create the localrepo
+     command: createrepo /localrepo

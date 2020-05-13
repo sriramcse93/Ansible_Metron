@@ -1,0 +1,301 @@
+---
+- name: Metron Single Node Installation
+  hosts: ansiblemaster
+  gather_facts: False
+  vars:
+    pythonversion: 2.7.6
+    mavenversion: 3.6.3
+    nodeversion: v0.10.30
+  tasks:
+   - name: Stop service firewall, if started
+     service:
+      name: firewalld
+      state: stopped
+   - name: Set DisableSElinux
+     command: setenforce 0
+# Check the .ssh
+   - stat: path=/root/.ssh
+     register: sshpath 
+# SSH Key Gen
+   - name: SSH RSA KEYGEN
+     shell: |
+       ssh-keygen -t rsa
+       cat .ssh/id_rsa.pub >> .ssh/authorized_keys
+     when: sshpath.stat.exists == False
+   - name: Add epel-release repo
+     yum:
+      name: epel-release
+      state: present
+      update_cache: yes
+   - name: Install gcc gcc-c++
+     yum:
+      name: 
+        - gcc
+        - gcc-c++
+      state: present
+# Download the python tar file
+   - stat: path=/root/Python-{{ pythonversion }}.tar.xz
+     register: result
+   - name: Download the Python tar files
+     get_url:
+       url: http://www.python.org/ftp/python/{{ pythonversion }}/Python-{{ pythonversion }}.tar.xz
+       dest: /root/
+     when: result.stat.exists == False
+# Extract the tar file
+   - stat: path=/root/Python-{{ pythonversion }}
+     register: pythonextract
+   - name: Extract the python tar file
+     unarchive: 
+       src: /root/Python-{{ pythonversion }}.tar.xz 
+       dest: /root/
+     when: pythonextract.stat.exists == False
+   - name: Install Python_HOME
+     command: chdir=/root/Python-{{ pythonversion }} ./configure
+   - name: Install Python_HOME altinstall
+     command: chdir=/root/Python-{{ pythonversion }} make altinstall
+   - name: Set Python_HOME 
+     shell: |
+       cd /root/Python-{{ pythonversion }} 
+       export PATH="/usr/local/bin:$PATH"
+   - stat: path=/etc/profile.d/java_18.sh
+     register: javapath
+   - name: Install JAVA_HOME
+     shell: |
+       yum install java-1.8.0-openjdk java-1.8.0-openjdk-devel -y
+       export JAVA_HOME=$(readlink -f /usr/bin/java | sed "s_/jre/bin/java__")
+       echo 'export JAVA_HOME=$(readlink -f /usr/bin/java | sed "s_/jre/bin/java__")' > /etc/profile.d/java_18.sh
+       chmod +x /etc/profile.d/java_18.sh
+       source /etc/profile.d/java_18.sh
+     when: javapath.stat.exists == False
+     args:
+       warn: false
+# Download the maven tar file
+   - stat: path=/root/apache-maven-{{ mavenversion }}-bin.tar.gz
+     register: result1
+   - name: Download the maven tar files
+     get_url:
+       url: https://mirrors.estointernet.in/apache/maven/maven-3/{{ mavenversion }}/binaries/apache-maven-{{ mavenversion }}-bin.tar.gz
+       dest: /root/
+     when: result1.stat.exists == False
+# Extract the tar file
+   - stat: path=/root/apache-maven-{{ mavenversion }}-bin
+     register: mavenpath
+   - name: Extract the maven tar file
+     unarchive:
+       src: /root/apache-maven-{{ mavenversion }}-bin.tar.gz
+       dest: /root/
+     when: mavenpath.stat.exists == False
+   - stat: path=/etc/profile.d/maven.sh
+     register: maveninstall
+   - name: Install MAVEN_HOME
+     shell: |
+        mv apache-maven-{{ mavenversion }} /opt
+        PATH=/opt/apache-maven-{{ mavenversion }}/bin:$PATH
+        echo 'export PATH=/opt/apache-maven-{{ mavenversion }}/bin:$PATH' > /etc/profile.d/maven.sh
+        chmod +x /etc/profile.d/maven.sh
+        source /etc/profile.d/maven.sh
+     when: maveninstall.stat.exists == False
+   - name: Install Python Libraries and python pip
+     shell: |
+       yum install git wget curl rpm tar unzip bzip2 wget createrepo yum-utils ntp python-pip psutils python-psutil ntp libffi-devel gcc openssl-devel npm -y
+       pip install --upgrade pip
+       pip install requests urllib
+       pip install --upgrade setuptools
+     args:
+       warn: false
+# Install Python pip
+   - name: Install Python-Pip
+     yum:
+      name: python-pip
+      state: present
+      update_cache: yes
+# Download the NpM and node tar file
+   - stat: path=/root/node-{{ nodeversion }}.tar.gz
+     register: result2
+   - name: Download the node tar files
+     get_url:
+       url: http://nodejs.org/dist/{{ nodeversion }}/node-{{ nodeversion }}.tar.gz
+       dest: /root/
+     when: result2.stat.exists == False
+# Extract the node tar file
+   - stat: path=/root/node-{{ nodeversion }}
+     register: nodetar
+   - name: Extract the node tar file
+     unarchive:
+       src: /root/node-{{ nodeversion }}.tar.gz
+       dest: /root/
+     when: nodetar.stat.exists == False
+   - name: Install the Node Path
+     shell: |
+       cd /root/node-{{ nodeversion }}
+       ./configure
+       make
+       sudo make install
+# Docker install and Start
+   - name: Install the Docker IO
+     yum:
+      name: docker-io
+      state: latest
+   - name: Start Docker service
+     service:
+        name: docker
+        state: started
+        enabled: yes
+# Mysql-server installation
+   - name: Download MySQL Community Repo
+     get_url:
+       url: https://dev.mysql.com/get/mysql57-community-release-el7-9.noarch.rpm
+       dest: /root
+   - name: Install MySQL Repo
+     command: /usr/bin/rpm -ivh /root/mysql57-community-release-el7-9.noarch.rpm
+     args:
+       warn: false
+   - name: Install MySQL Server
+     yum: 
+       name: mysql-server 
+       state: present
+   - name: Start MySQL Server and enable it
+     service: 
+       name: mysqld 
+       state: started
+       enabled: yes
+   - name: Transfer executable script 
+     copy: 
+      src: /root/mysqlmetron/resetpassword.sh 
+      dest: /root/ansiblemetron 
+      mode: 0777
+   - name: Transfer executable script 
+     copy: 
+      src: /root/mysqlmetron/validate.sh 
+      dest: /root/ansiblemetron
+      mode: 0777
+   - name: Transfer executable script 
+     copy: 
+      src: /root/mysqlmetron/metrontable.sh 
+      dest: /root/ansiblemetron 
+      mode: 0777
+   - name: Reset the password
+     command: sh /root/ansiblemetron/resetpassword.sh
+     args:
+       warn: false
+   - name: Update the password policy
+     command: sh /root/ansiblemetron/validate.sh
+     args:
+       warn: false
+   - name: Create the metronrest database
+     command: sh /root/ansiblemetron/metrontable.sh
+     args:
+       warn: false
+# To check metron directory for git
+   - stat: path=/root/metron
+     register: direxist
+   - name: Creates directory for metron
+     file:
+      path: /root/metron
+      state: directory
+     when: direxist.stat.exists == false
+# Git the Metron Code
+   - name: Download Metron Code
+     git:
+      repo: https://github.com/apache/metron.git
+      dest: /root/metron
+      clone: yes
+     when: direxist.stat.exists == false
+# To check metron directory for mpack
+   - stat: path=/root/metron/metron-deployment/packaging/ambari/metron-mpack/target/
+     register: metronmpack
+   - stat: path=/root/metron/metron-deployment/packaging/ambari/elasticsearch-mpack/target/
+     register: elasticsearchmpack
+   - name: Maven Build the metron                                                      
+     command: chdir=/root/metron/ mvn clean install -DskipTests -PHDP-2.5.0.0
+     when: metronmpack.stat.exists == false and elasticsearchmpack.stat.exists == false
+   - name: Metron build message 
+     debug:
+       msg: "Metron Build Done"
+# To check metron directory for noarch
+   - stat: path=/root/metron/metron-deployment/packaging/docker/rpm-docker/target/RPMS/noarch/
+     register: rpmfile
+   - name: Maven Build the rpm-docker                                                      
+     command: chdir=/root/metron/metron-deployment/packaging/docker/rpm-docker mvn clean install -DskipTests -PHDP-2.5.0.0
+     when: rpmfile.stat.exists == false
+   - name: Metron RPM build message 
+     debug:
+       msg: "Metron RPM Build Done"
+   - stat: path=/localrepo
+     register: localrepopath
+# Directory for localrepo
+   - name: Directory for LocalRepo for Metron RPM 
+     file:
+      path: /localrepo
+      state: directory
+     when: localrepopath.stat.exists == false
+# Copy all rpm packages to localrepo
+   - name: Copy all rpm packages to localrepo
+     shell: | 
+       cp -rp /root/metron/metron-deployment/packaging/docker/rpm-docker/target/RPMS/noarch/* /localrepo/
+     when: localrepopath.stat.exists == false       
+# create the localrepo
+   - name: create the localrepo
+     command: createrepo /localrepo
+# Check the ambari repo is already exists or not
+   - stat: path=/etc/yum.repos.d/ambari.repo
+     register: ambarirepopath
+# Download the hortonworks repo
+   - name: Download the hortonworks repo for ambari
+     command: wget -nv http://public-repo-1.hortonworks.com/ambari/centos7/2.x/updates/2.6.2.0/ambari.repo -O /etc/yum.repos.d/ambari.repo
+     when: ambarirepopath.stat.exists == false
+     args:
+       warn: false
+# Update the Repo
+   - name: Update the software package repository
+     yum:
+      update_cache: yes
+# Check the repolist
+   - name: Check the repolist 
+     command: yum repolist | grep ambari
+     args:
+       warn: false
+     register: ambarirepo
+   - name: Print ambari repo
+     debug:
+       msg: "{{ ambarirepo.stdout }}" 
+# Install the Ambari Server
+   - name: Install the Ambari Server
+     yum:
+      name: ambari-server
+      state: present
+# Setup the ambari server
+   - name: Setup the ambari server
+     command: ambari-server setup -s
+# Add the metron mpack to ambari
+   - name: Add the metron mpack to ambari
+     command: ambari-server install-mpack --mpack=/root/metron/metron-deployment/packaging/ambari/metron-mpack/target/metron_mpack-0.7.2.0.tar.gz
+   - name: Add the elasticsearch  mpack to ambari
+     command: ambari-server install-mpack --mpack=/root/metron/metron-deployment/packaging/ambari/elasticsearch-mpack/target/elasticsearch_mpack-0.7.2.0.tar.gz
+# Start the amabri Server
+   - name: Start the amabri Server
+     service:
+        name: ambari-server
+        state: started
+        enabled: yes 
+# Check the ambari status
+   - name: Check the ambari server status
+     command: ambari-server status
+     register: ambaristatus
+   - name: Print ambari status
+     debug:
+       msg: "{{ ambaristatus.stdout }}"
+ # SSL Issue Fix
+ 
+   - name: Enable SSL Protocol
+     blockinfile:
+        path: /etc/ambari-agent/conf/ambari-agent.ini
+        insertafter: "credential_shell_cmd=org.apache.hadoop.security.alias.CredentialShell"
+        block: |
+         force_https_protocol=PROTOCOL_TLSv1_2
+# Disable the https
+   - name: Disable the https
+     replace:
+       path: /etc/python/cert-verification.cfg 
+       regexp: "verify=platform_default"
+       replace: "verify=disable"

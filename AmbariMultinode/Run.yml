@@ -1,0 +1,14 @@
+---
+- hosts: master
+  tasks:
+    - debug:
+        msg: Install the Master and Slave.
+
+- name: Execute the Master Ansible
+  include: /root/multinodemetron/Master.yml
+  
+- name: Execute the Slaves Ansible
+  include: /root/multinodemetron/Slaves.yml
+  
+- name: Install the Ambari in Master Node
+  include: /root/multinodemetron/Ambari.yml
